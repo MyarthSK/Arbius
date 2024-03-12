@@ -1,4 +1,5 @@
 import { readFileSync, writeFileSync } from "fs";
+import { join } from "path";
 import { ethers } from "ethers";
 import { initializeLogger, log } from "./log";
 import { initializeMiningConfig, c } from "./mc";
@@ -19,8 +20,8 @@ const getLogs = async (startBlock: number, endBlock: number) => {
       address: arbius.address,
       topics: [
         [
-          arbius.interface.getEventTopic("SolutionSubmitted"),
-          arbius.interface.getEventTopic("SolutionClaimed"),
+          ethers.utils.id("SolutionSubmitted(address,bytes32)"),
+          ethers.utils.id("SolutionClaimed(address,bytes32)"),
         ],
         ethers.utils.hexZeroPad(wallet.address, 32),
       ],
@@ -48,6 +49,7 @@ const getLogs = async (startBlock: number, endBlock: number) => {
     log.debug(`Unclaimed solutions: ${unclaimedTasks.length}`);
 
     if (toBlock === endBlock) break;
+
     fromBlock = toBlock + 1;
     toBlock = endBlock - fromBlock + 1 > maxBlocks ? fromBlock + maxBlocks - 1 : endBlock;
   }
@@ -60,28 +62,33 @@ async function main(configPath: string, startBlock?: string, endBlock?: string) 
     const mconf = JSON.parse(readFileSync(configPath, "utf8"));
     initializeMiningConfig(mconf);
   } catch (e) {
-    console.error(`unable to parse ${configPath}`);
+    console.error(`Unable to parse ${configPath}`);
     process.exit(1);
   }
 
   initializeLogger(null);
-
   await initializeBlockchain();
 
-  if (! startBlock) {
-    startBlock = '51380392';
-  }
-  if (! endBlock) {
-    endBlock = ""+(await wallet.provider.getBlockNumber());
-  }
+  const defaultStartBlock = "51380392";
+  const defaultEndBlock = ""+(await wallet.provider.getBlockNumber());
+
+  startBlock = startBlock || defaultStartBlock;
+  endBlock = endBlock || defaultEndBlock;
+
   const unclaimedTasks = await getLogs(Number(startBlock), Number(endBlock));
 
   log.debug(`${unclaimedTasks.length} unclaimed tasks found for ${wallet.address}`);
-  writeFileSync("unclaimed.json", JSON.stringify(unclaimedTasks));
+
+  try {
+    writeFileSync(join(__dirname, "unclaimed.json"), JSON.stringify(unclaimedTasks));
+  } catch (e) {
+    log.error("Error writing JSON file:", e);
+    process.exit(1);
+  }
 }
 
 if (process.argv.length < 3) {
-  log.error("usage: yarn scan:unclaimed MiningConfig.json [startBlock] [endBlock]");
+  log.error("Usage: yarn scan:unclaimed MiningConfig.json [startBlock] [endBlock]");
   process.exit(1);
 }
 

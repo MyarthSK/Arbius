@@ -1,4 +1,5 @@
 import { readFileSync, writeFileSync } from "fs";
+import { join } from "path";
 import { ethers } from "ethers";
 import { initializeLogger, log } from "./log";
 import { initializeMiningConfig, c } from "./mc";
@@ -8,15 +9,15 @@ import { expretry } from "./utils";
 const maxBlocks = 10_000;
 
 type ValidatorDeposit = {
-  addr: string,
-  validator: string,
-  amount: ethers.BigNumber,
-}
+  addr: string;
+  validator: string;
+  amount: ethers.BigNumber;
+};
 
 type Validator = {
-  validator: string,
-  balance: ethers.BigNumber,
-}
+  validator: string;
+  balance: ethers.BigNumber;
+};
 
 const getLogs = async (startBlock: number, endBlock: number) => {
   const deposits: ValidatorDeposit[] = [];
@@ -31,7 +32,7 @@ const getLogs = async (startBlock: number, endBlock: number) => {
       address: arbius.address,
       topics: [
         [
-          arbius.interface.getEventTopic("ValidatorDeposit"),
+          ethers.utils.id("ValidatorDeposit(address,address,uint256)"),
         ],
       ],
       fromBlock,
@@ -49,24 +50,24 @@ const getLogs = async (startBlock: number, endBlock: number) => {
             amount: parsedLog.args.amount,
           });
           break;
-          break;
       }
     });
 
     log.debug(`Total deposits: ${deposits.length}`);
 
     if (toBlock === endBlock) break;
+
     fromBlock = toBlock + 1;
     toBlock = endBlock - fromBlock + 1 > maxBlocks ? fromBlock + maxBlocks - 1 : endBlock;
   }
 
   const uniqueValidators = new Set(deposits.map((deposit) => deposit.validator));
-
   const validators: Validator[] = [];
+
   for (const validator of Array.from(uniqueValidators)) {
     log.debug(`Fetching balance for ${validator}`);
     const balance = await expretry(async () => (await arbius.validators(validator)).staked.toString());
-    validators.push({ validator, balance });
+    validators.push({ validator, balance: ethers.BigNumber.from(balance) });
   }
 
   return { deposits, validators };
@@ -77,32 +78,37 @@ async function main(configPath: string, startBlock?: string, endBlock?: string) 
     const mconf = JSON.parse(readFileSync(configPath, "utf8"));
     initializeMiningConfig(mconf);
   } catch (e) {
-    console.error(`unable to parse ${configPath}`);
+    console.error(`Unable to parse ${configPath}`);
     process.exit(1);
   }
 
   initializeLogger(null);
-
   await initializeBlockchain();
 
-  if (! startBlock) {
-    startBlock = '51380392';
-  }
-  if (! endBlock) {
-    endBlock = ""+(await wallet.provider.getBlockNumber());
-  }
+  const defaultStartBlock = "51380392";
+  const defaultEndBlock = ""+(await wallet.provider.getBlockNumber());
+
+  startBlock = startBlock || defaultStartBlock;
+  endBlock = endBlock || defaultEndBlock;
+
   const {
     deposits,
     validators,
-  }= await getLogs(Number(startBlock), Number(endBlock));
+  } = await getLogs(Number(startBlock), Number(endBlock));
 
-  log.debug(`${deposits.length} deposits found}`);
-  log.debug(`${validators.length} validators found}`);
-  writeFileSync("validators.json", JSON.stringify(deposits, null, 2));
+  log.debug(`${deposits.length} deposits found`);
+  log.debug(`${validators.length} validators found`);
+
+  try {
+    writeFileSync(join(__dirname, "deposits.json"), JSON.stringify(deposits, null, 2));
+  } catch (e) {
+    log.error("Error writing JSON file:", e);
+    process.exit(1);
+  }
 }
 
 if (process.argv.length < 3) {
-  log.error("usage: yarn scan:deposits MiningConfig.json [startBlock] [endBlock]");
+  log.error("Usage: yarn scan:deposits MiningConfig.json [startBlock] [endBlock]");
   process.exit(1);
 }
 

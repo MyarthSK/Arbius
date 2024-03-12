@@ -110,6 +110,7 @@ export interface Model {
   getcid: (MiningConfig: any, m: Model, taskid: string, input: any) => Promise<string|null>;
 }
 
+
 export interface DBTask {
   id: string;
   modelid: string;
@@ -119,31 +120,28 @@ export interface DBTask {
   version: number;
   cid: string;
   retracted: boolean;
-};
+}
 
 export interface DBInvalidTask {
   taskid: string;
-};
+}
 
 export interface DBSolution {
-  id: number;
   taskid: string;
   validator: string;
   blocktime: string;
   claimed: boolean;
   cid: string;
-};
+}
 
 export interface DBContestation {
-  id: number;
   taskid: string;
   validator: string;
   blocktime: string;
   finish_start_index: boolean;
-};
+}
 
 export interface DBContestationVote {
-  id: number;
   taskid: string;
   validator: string;
   yea: boolean;

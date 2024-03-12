@@ -1,4 +1,5 @@
 import { readFileSync, writeFileSync } from "fs";
+import { join } from "path";
 import { ethers } from "ethers";
 import { initializeLogger, log } from "./log";
 import { initializeMiningConfig, c } from "./mc";
@@ -12,12 +13,13 @@ type Contestation = {
   task: string;
   fromBlock: number;
   toBlock: number;
-}
+};
+
 type ContestationVote = {
   address: string;
   task: string;
   yea: boolean;
-}
+};
 
 const getLogs = async (startBlock: number, endBlock: number) => {
   const contestations: Contestation[] = [];
@@ -33,8 +35,8 @@ const getLogs = async (startBlock: number, endBlock: number) => {
       address: arbius.address,
       topics: [
         [
-          arbius.interface.getEventTopic("ContestationSubmitted"),
-          arbius.interface.getEventTopic("ContestationVote"),
+          ethers.utils.id("ContestationSubmitted(address,bytes32)"),
+          ethers.utils.id("ContestationVote(address,bytes32,bool)"),
         ],
       ],
       fromBlock,
@@ -67,6 +69,7 @@ const getLogs = async (startBlock: number, endBlock: number) => {
     log.debug(`Total contestations: ${contestations.length}`);
 
     if (toBlock === endBlock) break;
+
     fromBlock = toBlock + 1;
     toBlock = endBlock - fromBlock + 1 > maxBlocks ? fromBlock + maxBlocks - 1 : endBlock;
   }
@@ -82,33 +85,37 @@ async function main(configPath: string, startBlock?: string, endBlock?: string) 
     const mconf = JSON.parse(readFileSync(configPath, "utf8"));
     initializeMiningConfig(mconf);
   } catch (e) {
-    console.error(`unable to parse ${configPath}`);
+    console.error(`Unable to parse ${configPath}`);
     process.exit(1);
   }
 
   initializeLogger(null);
-
   await initializeBlockchain();
 
-  if (! startBlock) {
-    startBlock = '51380392';
-  }
-  if (! endBlock) {
-    endBlock = ""+(await wallet.provider.getBlockNumber());
-  }
+  const defaultStartBlock = "51380392";
+  const defaultEndBlock = ""+(await wallet.provider.getBlockNumber());
+
+  startBlock = startBlock || defaultStartBlock;
+  endBlock = endBlock || defaultEndBlock;
+
   const {
     contestations,
     contestationVotes,
-  
-  }= await getLogs(Number(startBlock), Number(endBlock));
+  } = await getLogs(Number(startBlock), Number(endBlock));
 
-  log.debug(`${contestations.length} contested tasks found}`);
-  writeFileSync("contestations.json", JSON.stringify(contestations, null, 2));
-  writeFileSync("contestationVotes.json", JSON.stringify(contestationVotes, null, 2));
+  log.debug(`${contestations.length} contested tasks found`);
+
+  try {
+    writeFileSync(join(__dirname, "contestations.json"), JSON.stringify(contestations, null, 2));
+    writeFileSync(join(__dirname, "contestationVotes.json"), JSON.stringify(contestationVotes, null, 2));
+  } catch (e) {
+    log.error("Error writing JSON files:", e);
+    process.exit(1);
+  }
 }
 
 if (process.argv.length < 3) {
-  log.error("usage: yarn scan:contested MiningConfig.json [startBlock] [endBlock]");
+  log.error("Usage: yarn scan:contested MiningConfig.json [startBlock] [endBlock]");
   process.exit(1);
 }
 

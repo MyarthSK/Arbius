@@ -1,5 +1,4 @@
 import fs from 'fs';
-import { Readable } from 'stream';
 import FormData from 'form-data';
 import axios from 'axios';
 import { MiningConfig } from './types';
@@ -29,7 +28,6 @@ export async function checkIpfs(c: MiningConfig) {
       initializeIpfsClient(c);
       if (ipfsClient == undefined)
         throw new Error('ipfs client not initialized');
-      // try to ping cloudflare to check if ipfs client
       try {
         for await (const res of ipfsClient.ping(
           'QmcfgsJsMtx6qJb74akCw1M24X1zFwgGo11h1cuhwQjtJP'
@@ -39,7 +37,6 @@ export async function checkIpfs(c: MiningConfig) {
           }
         }
         return;
-        // if error is ECONNREFUSED, throw error
       } catch (e) {
         throw new Error('ipfs client not connected');
       }
@@ -67,7 +64,6 @@ export async function checkIpfs(c: MiningConfig) {
   }
 }
 
-// TODO ensure pinata is using sha2-256 and chunk size-262144
 export async function pinFilesToIPFS(
   c: MiningConfig,
   taskid: string,
@@ -113,20 +109,24 @@ export async function pinFilesToIPFS(
 
       formData.append('pinataOptions', JSON.stringify({ cidVersion: 0 }));
 
-      const res = await axios.post(
-        'https://api.pinata.cloud/pinning/pinFileToIPFS',
-        formData,
-        {
-          maxBodyLength: Infinity,
-          headers: {
-            // @ts-ignore
-            'Content-Type': `multipart/form-data; boundary=${formData._boundary}`,
-            Authorization: `Bearer ${c.ipfs.pinata.jwt}`,
-          },
-        }
-      );
-
-      return res.data.IpfsHash;
+      try {
+        const res = await axios.post(
+          'https://api.pinata.cloud/pinning/pinFileToIPFS',
+          formData,
+          {
+            maxBodyLength: c.ipfs.pinata.maxBodyLength || Infinity,
+            headers: {
+              // @ts-ignore
+              'Content-Type': `multipart/form-data; boundary=${formData._boundary}`,
+              Authorization: `Bearer ${c.ipfs.pinata.jwt}`,
+            },
+          }
+        );
+        return res.data.IpfsHash;
+      } catch (e) {
+        console.error('Error pinning files to Pinata:', e);
+        throw e;
+      }
     }
     default:
       throw new Error('unknown ipfs strategy');
@@ -150,27 +150,27 @@ export async function pinFileToIPFS(
     case 'pinata': {
       const formData = new FormData();
 
-      var stream = new Readable();
-      stream.push(content);
-      stream.push(null); // eof
-
-      formData.append('file', stream, filename);
-
+      formData.append('file', content, filename);
       formData.append('pinataOptions', JSON.stringify({ cidVersion: 0 }));
 
-      const res = await axios.post(
-        'https://api.pinata.cloud/pinning/pinFileToIPFS',
-        formData,
-        {
-          maxBodyLength: Infinity,
-          headers: {
-            // @ts-ignore
-            'Content-Type': `multipart/form-data; boundary=${formData._boundary}`,
-            Authorization: `Bearer ${c.ipfs.pinata.jwt}`,
-          },
-        }
-      );
-      return res.data.IpfsHash;
+      try {
+        const res = await axios.post(
+          'https://api.pinata.cloud/pinning/pinFileToIPFS',
+          formData,
+          {
+            maxBodyLength: c.ipfs.pinata.maxBodyLength || Infinity,
+            headers: {
+              // @ts-ignore
+              'Content-Type': `multipart/form-data; boundary=${formData._boundary}`,
+              Authorization: `Bearer ${c.ipfs.pinata.jwt}`,
+            },
+          }
+        );
+        return res.data.IpfsHash;
+      } catch (e) {
+        console.error('Error pinning file to Pinata:', e);
+        throw e;
+      }
     }
     default:
       throw new Error('unknown ipfs strategy');

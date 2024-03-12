@@ -1,61 +1,44 @@
-import * as child_process from 'child_process';
 import * as fs from 'fs';
 import { initializeLogger, log } from './log';
 import { c, initializeMiningConfig } from './mc';
-import { ethers, BigNumber } from 'ethers';
+import { ethers } from 'ethers';
 import Config from './config.json';
-
 import { sleep } from './utils';
-
 import { MiningConfig } from './types';
-
-import {
-  wallet,
-  arbius,
-  initializeBlockchain,
-} from './blockchain';
+import { wallet, arbius, initializeBlockchain } from './blockchain';
 
 ethers.utils.Logger.setLogLevel(ethers.utils.Logger.levels.DEBUG);
 
 async function main() {
-  // need extra for ethers
   log.debug("Setting max file listeners to 100 for ethers");
   process.setMaxListeners(100);
 
-  
   let totalSolutions = 0;
   let shortSolutions = 0;
-  let solutionMap: Map<string, string[]> = new Map();
-  let shortSolutionMap: Map<string, string[]> = new Map();
+  const solutionMap: Map<string, string[]> = new Map();
+  const shortSolutionMap: Map<string, string[]> = new Map();
 
-  arbius.on('SolutionSubmitted', (
-    validator: string,
-    taskid:    string,
-    evt:       ethers.Event,
-  ) => {
-    ++totalSolutions;
-    ++shortSolutions;
+  arbius.on('SolutionSubmitted', (validator: string, taskid: string, evt: ethers.Event) => {
+    totalSolutions++;
+    shortSolutions++;
 
-    if (solutionMap.has(validator)) {
-      solutionMap.get(validator)!.push(taskid);
-    } else {
-      solutionMap.set(validator, [taskid]);
-    }
+    const updateSolutionMap = (map: Map<string, string[]>) => {
+      const solutions = map.get(validator);
+      if (solutions) {
+        solutions.push(taskid);
+      } else {
+        map.set(validator, [taskid]);
+      }
+    };
 
-    if (shortSolutionMap.has(validator)) {
-      shortSolutionMap.get(validator)!.push(taskid);
-    } else {
-      shortSolutionMap.set(validator, [taskid]);
-    }
+    updateSolutionMap(solutionMap);
+    updateSolutionMap(shortSolutionMap);
   });
 
   const bufferTime = 60; // seconds
 
-  setInterval(async () => {
-    // iterate over shortSolutionMap
-    let sorted = Array.from(shortSolutionMap.entries()).sort((a, b) => {
-        return b[1].length - a[1].length;
-    });
+  setInterval(() => {
+    const sorted = Array.from(shortSolutionMap.entries()).sort((a, b) => b[1].length - a[1].length);
 
     log.debug('=====');
     log.debug(`Total Solutions: ${totalSolutions}`);
@@ -63,16 +46,17 @@ async function main() {
     log.debug(`Solutions per second: ${shortSolutions / bufferTime}`);
     log.debug(`Total validators solutions in last minute: ${sorted.length}`);
     log.debug('Top 30 validators by solutions in last minute:');
-    for (let o of sorted.slice(0, 30)) {
-      log.debug(o[0], o[1].length);
-    }
+
+    sorted.slice(0, 30).forEach(([validator, solutions]) => {
+      log.debug(`${validator}: ${solutions.length}`);
+    });
 
     shortSolutions = 0;
     shortSolutionMap.clear();
   }, bufferTime * 1000);
 
   while (true) {
-    await sleep(1);
+    await sleep(1000);
   }
 }
 
@@ -81,30 +65,29 @@ async function start(configPath: string) {
     const mconf = JSON.parse(fs.readFileSync(configPath, 'utf8'));
     initializeMiningConfig(mconf);
   } catch (e) {
-    console.error(`unable to parse ${configPath}`);
+    console.error(`Unable to parse ${configPath}`);
     process.exit(1);
   }
 
   initializeLogger(c.log_path);
 
   try {
-    const rev = child_process.execSync('git rev-parse HEAD').toString().trim();
+    const rev = process.env.GIT_REV || 'unknown';
     log.info(`Arbius Solution Watch ${rev.substring(0, 8)} starting`);
   } catch (e) {
-    log.warn('Could not run "git rev-parse HEAD" do you have git in PATH?');
+    log.warn('Could not retrieve Git revision. Make sure GIT_REV environment variable is set.');
   }
 
   log.debug(`Logging to ${c.log_path}`);
-  
+
   await initializeBlockchain();
   log.debug(`Loaded wallet (${wallet.address})`);
 
   await main();
-  process.exit(0);
 }
 
 if (process.argv.length < 3) {
-  console.error('usage: yarn watch:solution MiningConfig.json');
+  console.error('Usage: yarn watch:solution MiningConfig.json');
   process.exit(1);
 }
 
